@@ -1,0 +1,97 @@
+---
+title: "Iowa Census Exploratory Analysis"
+output: html_notebook
+author: Nicole Wright
+---
+ 
+Use US Census and ACS data to explore occupation, gender, income, and age statistics of Iowa. The goal of this exploratory analysis is to find intersting questions to ask about the data.This data may be used inconjuction with US hospital data at a latter date. 
+
+
+```{r Load Packages}
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(readr)
+library(tidycensus)
+library(tmap)
+library(tmaptools)
+library(sf)
+```
+
+
+2010 US Census data, using the tidycensus package ( 1/1/2019).
+Key: 6bfbcee4b4c37a9683ac9c0e1d174d5f0ad67674
+pdf: https://cran.r-project.org/web/packages/tidycensus/tidycensus.pdf
+
+```{r 2010 Census set up}
+census_api_key("6bfbcee4b4c37a9683ac9c0e1d174d5f0ad67674", install = TRUE, overwrite = TRUE)
+census_key <- "6bfbcee4b4c37a9683ac9c0e1d174d5f0ad67674"
+
+# First time, reload your environment so you can use the key without restarting R.
+readRenviron("~/.Renviron")
+```
+```{r Load Variables}
+LVacs5 <- load_variables(2017, "acs5", cache = TRUE)
+LVacs1 <- load_variables(2017, "acs1", cache = TRUE)
+
+View(LVacs1)
+#FAMILY INCOME IN THE PAST 12 MONTHS (IN 2017 INFLATION-ADJUSTED DOLLARS) :B10010_001
+#OCCUPATION BY MEDIAN EARNINGS IN THE PAST 12 MONTHS (IN 2017 INFLATION-ADJUSTED DOLLARS) FOR THE CIVILIAN EMPLOYED POPULATION 16 YEARS AND OVER: B24011_030
+#DETAILED OCCUPATION BY MEDIAN EARNINGS IN THE PAST 12 MONTHS (IN 2017 INFLATION-ADJUSTED DOLLARS) FOR THE FULL-TIME, YEAR-ROUND CIVILIAN EMPLOYED POPULATION 16 YEARS AND OVER: B24012_067
+
+
+#PLACE OF BIRTH BY EDUCATIONAL ATTAINMENT IN THE UNITED STATES for 
+  #No Highschool: B15003_002
+  #Hischool: B06009_021
+  #Associate's or some: B06009_022
+  #Bachelor's: B06009_023
+  #Graduates: B06009_024
+#EDUCATIONAL ATTAINMENT BY PRESENCE OF A COMPUTER AND TYPES OF INTERNET SUBSCRIPTION IN HOUSEHOLD
+  #Less High school, no computer: B28006_007
+  #Less High schook, computer: B28006_003
+  #Less High school, computer with dial up internet: B28006_004
+  #Less High school, computer with broad band internet: B28006_005
+
+  
+```
+
+Iowa appears to have a low percentage of Iowas per the total population is very low (<5% of Iowans are reported as farmers). the ERS 2016 study showes that only 49.2% of farm workers are US citizens.Could this be why report is so low?
+https://www.ers.usda.gov/topics/farm-economy/farm-labor/
+
+Make this section neater!!
+```{r census_IA data}
+#This is to get State data and geoid data for adding to actual data later
+x0 <- get_decennial(geography = "county", variables = "P001001", year = 2010, key = census_key)
+
+#2010 census variables, 
+State <- unlist(strsplit(x0$NAME, split = ", ")) %>%
+    matrix(ncol = 2, byrow = TRUE) %>% 
+    as_tibble() %>%
+    rename(State = V2) %>%
+    mutate(GEOID = x0$GEOID)
+
+#2017 5 year acs
+v01 <- c(total_population = "B00001_001", total_median_age = "B01002_001", med_family_income = "B10010_001", farming_income = "B24011_030", male_farmers_all = "C24010_031", female_farmers_all = "C24010_067", total_nonHigh = "B28006_002", nonHigh_no_computer = "B28006_007", nonHigh_computer = "B28006_003", nonHigh_computer_dialup = "B28006_004", nonHigh_computer_broadband = "B28006_005")
+        
+#2017 1 year acs
+v02 <-  c(male_farmers_all = "C24010_031", female_farmers_all = "C24010_067")  
+
+x01 <- get_acs(geography = "county", variables = v01, year = 2017, geometry = TRUE, cache_table = TRUE, survey = "acs5", shift_geo = TRUE, key = census_key) %>%
+  left_join(State, by = "GEOID") 
+  
+acs_IA <- x01 %>%  
+  filter(State == "Iowa") %>%
+  select(-V1, -moe) %>%
+  spread(variable, estimate) %>%
+  mutate(total_farmers = male_farmers_all + female_farmers_all, 
+         farmers_per = total_farmers/total_population*100,   
+         farming_to_total_income = farming_income / med_family_income,
+         nonHigh_no_computer_per = nonHigh_no_computer / total_nonHigh * 100,
+         nonHigh_computer_per = nonHigh_computer / total_nonHigh * 100,
+         nonHigh_computer_dialup_per = nonHigh_computer_dialup / total_nonHigh * 100, 
+         nonHigh_computer_broadband_per = nonHigh_computer_broadband / total_nonHigh * 100) %>%
+  select(County = NAME, total_population, total_median_age, med_family_income, total_farmers, farmers_per, farming_income, farming_to_total_income, contains("nonHigh"), State, GEOID, geometry) %>%
+  mutate(rounded_income = round(med_family_income, -4), Age = cut_interval(total_median_age, n = 4, length = NULL, labels = c("25-30", "30-35", "35-40", ">40")))
+
+ 
+```
