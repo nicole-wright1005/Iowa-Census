@@ -51,6 +51,7 @@ View(LVacs1)
   #Less High schook, computer: B28006_003
   #Less High school, computer with dial up internet: B28006_004
   #Less High school, computer with broad band internet: B28006_005
+#MEDIAN FAMILY INCOME FOR FAMILIES WITH GRANDPARENT HOUSEHOLDERS AND/OR SPOUSES LIVING WITH OWN GRANDCHILDREN UNDER 18 YEARS BY RESPONSIBILITY FOR OWN GRANDCHILDREN AND PRESENCE OF PARENT OF GRANDCHILDREN
 
   
 ```
@@ -71,7 +72,7 @@ State <- unlist(strsplit(x0$NAME, split = ", ")) %>%
     mutate(GEOID = x0$GEOID)
 
 #2017 5 year acs
-v01 <- c(total_population = "B00001_001", total_median_age = "B01002_001", med_family_income = "B10010_001", farming_income = "B24011_030", male_farmers_all = "C24010_031", female_farmers_all = "C24010_067", total_nonHigh = "B28006_002", nonHigh_no_computer = "B28006_007", nonHigh_computer = "B28006_003", nonHigh_computer_dialup = "B28006_004", nonHigh_computer_broadband = "B28006_005")
+v01 <- c(total_population = "B00001_001", total_median_age = "B01002_001", med_family_income = "B19013_001", farming_income = "B24011_030", male_farmers_all = "C24010_031", female_farmers_all = "C24010_067", total_nonHigh = "B28006_002", nonHigh_no_computer = "B28006_007", nonHigh_computer = "B28006_003", nonHigh_computer_dialup = "B28006_004", nonHigh_computer_broadband = "B28006_005")
         
 #2017 1 year acs
 v02 <-  c(male_farmers_all = "C24010_031", female_farmers_all = "C24010_067")  
@@ -91,7 +92,89 @@ acs_IA <- x01 %>%
          nonHigh_computer_dialup_per = nonHigh_computer_dialup / total_nonHigh * 100, 
          nonHigh_computer_broadband_per = nonHigh_computer_broadband / total_nonHigh * 100) %>%
   select(County = NAME, total_population, total_median_age, med_family_income, total_farmers, farmers_per, farming_income, farming_to_total_income, contains("nonHigh"), State, GEOID, geometry) %>%
-  mutate(rounded_income = round(med_family_income, -4), Age = cut_interval(total_median_age, n = 4, length = NULL, labels = c("25-30", "30-35", "35-40", ">40")))
+  mutate(rounded_income = round(med_family_income, -4), Age = cut_interval(total_median_age, n = 4, length = NULL, labels = c("25-30", "30-35", "35-40", ">40"))) %>%
+  mutate(farmersf = cut_interval(farmers_per, n = 5, labels = c("<5", "5-10", "10-14", "14-18", ">18"))) %>%
+   mutate(farmersi = cut_width(farming_to_total_income, width = .5))
 
- 
+View(acs_IA)
 ```
+
+Notes from above: cut_interval is used to discretize a numerical variable into distinct groups for factor analysis, a secondary varaibale is created representing how that variabe fits into the new labeled bin (Age: if 35 fall in the 30-35 bin). For the median family income variables and new rounded variable was created that would make more incomes match for factor analysis.
+
+Non-highschool graduate variables note: recorded the total number of  people who did not graduate highschool, or eqivalent, (nonHigh_total) of that subset population recorded people who did not have access to computer, computer but no internet, computer with dial up internet, and computer with broadband internet. The idea is kids who have limited access to computers will have a higher rate of non-highschool grad. Obviously kids without computers or internet probably come from poor families where recourses are already low. Just interesting little tibit.
+
+In the future I could creat multible data sets for exploring different subsets of iowa data.
+----
+Theme: I need a theme that has white background, no grid lines, ... basically completely blank and I would like to add legend title and shift or tilt the axis so that Iowa is level to the eye (maybe not nescessary..) Nadia reccommended  theme_minimal() with coord_sf(datum = NA)
+Aslo pick universal color scheme... I don't really like what I've got sofar 061519
+
+
+```{r theme}
+theme(plot.background = element_rect(color = "white"), legend.title = element_blank()) 
+theme_blank <- theme_minimal() + coord_sf(datum = NA)
+#Error: Don't know how to add RHS to a theme object... fix
+```
+
+
+
+```{r IA census Median Income graphs}
+
+acs_IA %>%
+  ggplot() +
+  geom_sf(aes(fill = factor(rounded_income))) + 
+  labs(title = "Iowan Median Family Income") + 
+  coord_sf(datum = NA) + 
+  theme_minimal() 
+
+#check, no more na income values... I wws using a grandparents household income
+acs_IA %>%
+  count(is.na(med_family_income))
+```
+
+```{r}
+ggplot(data = acs_IA) +
+  geom_sf(aes(fill = Age)) + 
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Iowan Median Age") + 
+  coord_sf(datum = NA) + 
+  theme_minimal()
+
+#not thrilled about the color, add a legend title. Not terrible interesting as 25 to 40 is not a large span, looking more indepth would be more interesting. Which counties has the most kids (<18yrs) which county is the oldest?
+```
+
+```{r Total Iowan farmers}
+
+total_farmers <- sum(acs_IA$total_farmers)
+IA_pop <- sum(acs_IA$total_population)
+farmers_per <- round(total_farmers / IA_pop * 100, 2)
+farmers_per
+```
+According to the 5 year acs 2017 study only 4.85% of Iowans are farmers, this shoudl include non-full time farmers. The number seems very low to me, however I wonder this this number includes people who work on farms temporarily or seaonally and if it includes any immigrant seasonal labor. According to a 2016 USDA ag study, in the US only 49.1% of agicultural workers are US citizens. Are these two studies comapring the same data and representing farmers "accurately"
+
+```{r percent farmers in iowa}
+#Example of what was previously done... can we manually set cut intervals? 
+##census_IAf$per_cFarmer <- cut_interval(census_IAf$per_Farmer, n = 5)
+
+acs_IA %>%
+ggplot() +
+  geom_sf(aes(fill = factor(farmersf))) + 
+  labs(title = "Percentage of working Iowan Farmers", fill = "Percent Farmers") + 
+  coord_sf(datum = NA) +
+  theme_minimal() + 
+  scale_fill_brewer(palette = "Greens") 
+
+```
+# error:   mutate(farmersf = cut_interval(farmers_per, n = 5, breaks = c(2.5, 5, 10, 15, Inf), labels = c("<2.5", "2.5-5", "5-10", "10-15", ">15"))) Gave: Evaluation error: length of 'breaks' and labels' differ. ??
+
+Examing the above graph
+
+```{r farmer income}
+#cut_width spaces each bin out by a specific width, like .5 units away. But cannot specify labels in argurement. lables = c("<.25", ".25-.75", ".75-1.25", "2.25-2.75"))
+acs_IA %>%
+  ggplot() +
+  geom_sf(aes(fill = factor(farmersi))) + 
+  labs(title = "Ratio of Total Median Income to Median Farming Income for Iowa", fill = "Ratio of Incomes") + 
+  coord_sf(datum = NA) + 
+  theme_minimal() 
+```
+
