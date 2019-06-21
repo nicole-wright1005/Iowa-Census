@@ -3,8 +3,26 @@ title: "Iowa Census Exploratory Analysis"
 output: html_notebook
 author: Nicole Wright
 ---
- 
-Use US Census and ACS data to explore occupation, gender, income, and age statistics of Iowa. The goal of this exploratory analysis is to find intersting questions to ask about the data.This data may be used inconjuction with US hospital data at a latter date. 
+Goals of IA census Project:
+
+1. getting more familiar with tidycensus package
+2. finding underserved regions in iowa with respect to the variables of interest
+3. producing content relevant to government and non-profit agencies in the state
+
+What is an underserved populaitons have?
+* Low income
+* Homeless
+* migrant farm workers
+* High percentage under the Federal poverty level
+* High percentage over 65 years old (how much, >20%)
+* High infant mortality rates
+* Low population to provide ratio
+
+What content is relevant to government and non-profit agencies in Iowa?
+* Underserved populations described above
+* Statistics around children (poverty, education, stability of home and movement)
+
+Use Iowa Census and ACS data to explore occupation, gender, income, and age statistics of Iowa. The goal of this exploratory analysis is to find intersting questions to ask about the data.This data may be used inconjuction with US hospital data at a later date.  
 
 
 ```{r Load Packages}
@@ -33,8 +51,10 @@ readRenviron("~/.Renviron")
 ```{r Load Variables}
 LVacs5 <- load_variables(2017, "acs5", cache = TRUE)
 LVacs1 <- load_variables(2017, "acs1", cache = TRUE)
+LVcn2010 <- load_variables(2010, "sf1", cache = TRUE)
 
-View(LVacs1)
+View(LVcn2010)
+View(LVacs5)
 #FAMILY INCOME IN THE PAST 12 MONTHS (IN 2017 INFLATION-ADJUSTED DOLLARS) :B10010_001
 #OCCUPATION BY MEDIAN EARNINGS IN THE PAST 12 MONTHS (IN 2017 INFLATION-ADJUSTED DOLLARS) FOR THE CIVILIAN EMPLOYED POPULATION 16 YEARS AND OVER: B24011_030
 #DETAILED OCCUPATION BY MEDIAN EARNINGS IN THE PAST 12 MONTHS (IN 2017 INFLATION-ADJUSTED DOLLARS) FOR THE FULL-TIME, YEAR-ROUND CIVILIAN EMPLOYED POPULATION 16 YEARS AND OVER: B24012_067
@@ -74,8 +94,6 @@ State <- unlist(strsplit(x0$NAME, split = ", ")) %>%
 #2017 5 year acs
 v01 <- c(total_population = "B00001_001", total_median_age = "B01002_001", med_family_income = "B19013_001", farming_income = "B24011_030", male_farmers_all = "C24010_031", female_farmers_all = "C24010_067", total_nonHigh = "B28006_002", nonHigh_no_computer = "B28006_007", nonHigh_computer = "B28006_003", nonHigh_computer_dialup = "B28006_004", nonHigh_computer_broadband = "B28006_005")
         
-#2017 1 year acs
-v02 <-  c(male_farmers_all = "C24010_031", female_farmers_all = "C24010_067")  
 
 x01 <- get_acs(geography = "county", variables = v01, year = 2017, geometry = TRUE, cache_table = TRUE, survey = "acs5", shift_geo = TRUE, key = census_key) %>%
   left_join(State, by = "GEOID") 
@@ -115,6 +133,39 @@ theme_blank <- theme_minimal() + coord_sf(datum = NA)
 #Error: Don't know how to add RHS to a theme object... fix
 ```
 
+```{r get IA_poverty}
+#Using ACS 2017 5-year survey data (same variables from 1 year)
+L1 <- LVacs1 %>%
+  filter(grepl('B17001_', name)) %>%
+  filter(!grepl('above', label)) %>%
+  as_tibble() %>%
+  mutate(as.character(label)) %>%
+  mutate(label = sapply(strsplit(label, split = '!!Income in the past 12 months below poverty level!!', fixed = TRUE), function(x) (x[2]))) %>% 
+  na.omit() %>%
+    select(name, label)
+
+v02 <- as.vector(L1$name)
+
+v03 <- list(L1$label)
+
+x02 <- get_acs(geography = "county", 
+               variables = v02, 
+               state = "IA",
+               year = 2017, 
+               geometry = TRUE, 
+               cache_table = TRUE, 
+               survey = "acs5", 
+               shift_geo = FALSE, 
+               key = census_key)
+View(x02)
+#Only contains 10 counties? 
+poverty_IA <- x02 %>%
+  select(-moe) %>%
+  spread(variable, estimate) %>%
+  
+  View()
+
+```
 
 
 ```{r IA census Median Income graphs}
@@ -177,4 +228,21 @@ acs_IA %>%
   coord_sf(datum = NA) + 
   theme_minimal() 
 ```
+
+```{r Non-highschool graduates}
+
+acs_IA %>%
+  summarize(Total_Non_grauates = sum(total_nonHigh) / sum(total_population)*100, 
+         With_broadband = mean(nonHigh_computer_broadband_per), 
+         With_dialup = mean(nonHigh_computer_dialup_per), 
+         With_computer = mean(nonHigh_computer_per), 
+         No_computer = mean(nonHigh_no_computer_per)) %>%
+  select(-geometry) %>%
+  mutate_if(is.numeric, round, 2) %>%
+     knitr::kable() %>%
+  kableExtra::kable_styling("striped")
+```
+
+
+I misrepresented the non-highschool graduates variable. From tabele: Educational Attainment by Presence of a Computer and Types of Internet Subscription in Household, variables actually describles Highschool equivalent or less. I will remove these variables. 
 
