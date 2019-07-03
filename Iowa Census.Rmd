@@ -32,6 +32,7 @@ library(readr)
 library(tmap)
 library(tmaptools)
 library(sf)
+library(hydroTSM)
 ```
 
 
@@ -131,6 +132,85 @@ theme_blank <- theme_minimal() + coord_sf(datum = NA)
 #Error: Don't know how to add RHS to a theme object... fix
 ```
 
+
+```{r Age data}
+#Using ACS 2017 5-year survey data (same variables from 1 year)
+##Population by sex and age 
+##Yes, you need as.character(label)!!
+LVacs5 <- load_variables(2017, "acs5", cache = TRUE)
+View(LVacs5)
+
+L2 <- LVacs5 %>%
+  filter(concept == "SEX BY AGE") %>%
+  as_tibble() %>%
+  mutate(as.character(label)) %>%
+  mutate(label = sapply(strsplit(label, split = 'Estimate!!Total!!', fixed = TRUE), function(x) (x[2]))) %>% 
+  na.omit() %>%
+  dplyr::select(name, label) 
+
+v04 <- as.vector(L2$name) 
+v05 <- as.vector(L2$label) 
+
+x03 <- get_acs(geography = "county", 
+               variables = v04, 
+               state = "IA",
+               year = 2017, 
+               geometry = TRUE, 
+               cache_table = TRUE, 
+               survey = "acs5", 
+               shift_geo = FALSE, 
+               key = census_key)
+
+Age_IA <- x03 %>%
+  select(-moe) %>%
+  spread(variable, estimate) %>%
+  rename(County = NAME)
+
+#Can't figure out how to include in the pipe.
+names(Age_IA)[3:50] <- v05
+colnames(Age_IA) <- gsub("!!", "_", colnames(Age_IA)) 
+colnames(Age_IA) <- gsub(" ", "_", colnames(Age_IA)) 
+```
+
+```{r Total_Age_IA}
+Total_Age_IA <- Age_IA %>% 
+  mutate(Under_5_years = Male_Under_5_years + Female_Under_5_years,
+         years_5to9 = Male_5_to_9_years + Female_5_to_9_years,
+         years_10to14 = Male_10_to_14_years + Female_10_to_14_years,
+         years_15to17 = Male_15_to_17_years + Female_15_to_17_years,
+         Under_18_years = Under_5_years + years_5to9 + years_10to14 + years_15to17,
+         years_18to24 = Male_18_and_19_years + Male_20_years + Male_21_years + Male_22_to_24_years +
+            Female_18_and_19_years + Female_20_years + Female_21_years + Female_22_to_24_years,
+         years_25to29 = Male_25_to_29_years + Female_25_to_29_years, 
+         years_30to39 = Male_30_to_34_years + Male_35_to_39_years + Female_30_to_34_years + Female_35_to_39_years,
+         years_40_49 = Male_40_to_44_years + Male_45_to_49_years +Female_40_to_44_years + Female_45_to_49_years,
+         years_50to59 = Male_50_to_54_years + Male_55_to_59_years +Female_50_to_54_years + Female_55_to_59_years,
+         years_60to64 = Male_60_and_61_years + Male_62_to_64_years + Female_60_and_61_years + Female_62_to_64_years,
+         years_65to69 = Male_65_and_66_years + Male_67_to_69_years + Female_65_and_66_years + Female_67_to_69_years,
+         years_70to74 = Male_70_to_74_years + Female_70_to_74_years,
+         years_75to79 = Male_75_to_79_years + Female_75_to_79_years,
+         years_80to84 = Male_80_to_84_years + Female_80_to_84_years,
+         Over_85_years = Male_85_years_and_over + Female_85_years_and_over) 
+Total_Age_IA[ , c(3:50)] <- NULL
+View(Total_Age_IA)
+```
+
+
+```{r attempt at automation Age_IA}
+#Can we automattially add male and female age groups together?
+v06 <- names(Age_IA)[3:50] %>% as.vector()
+  
+v06 <- gsub("Male", " ", v06)
+v06 <- gsub("Female", " ", v06)
+
+v06 <-rm1stchar(v06, n = 2)
+v06<- v06[-c(1:25)]  
+v06 <- as.vector(v06)
+
+gather(Age_IA, key = "Gender", value = "Age") 
+
+```
+
 ```{r get IA_poverty}
 #Using ACS 2017 5-year survey data (same variables from 1 year)
 ##Population by sex and age below the povery level in the last 12months.
@@ -167,31 +247,35 @@ names(poverty_IA)[3:30] <- v03
 colnames(poverty_IA) <- gsub("!!", "_", colnames(poverty_IA)) 
 colnames(poverty_IA) <- gsub(" ", "_", colnames(poverty_IA)) 
 
+
 ##Do not use plyr!!! no round_any()
 poverty_IA <- poverty_IA %>%
   group_by(County) %>%
-  mutate(Total_Minors = sum(Male_Under_5_years, Male_5_years, Male_6_to_11_years, Male_12_to_14_years, Male_15_years, Male_16_and_17_years, Female_Under_5_years, Female_5_years, Female_6_to_11_years, Female_12_to_14_years, Female_15_years, Female_16_and_17_years))  %>% 
-  mutate(log_Minors = log10(Total_Minors), rlog_Minors = round(log_Minors/.5)*.5) 
+  mutate(Total_Minors = sum(Male_Under_5_years, Male_5_years, Male_6_to_11_years, Male_12_to_14_years, Male_15_years, Male_16_and_17_years, Female_Under_5_years, Female_5_years, Female_6_to_11_years, Female_12_to_14_years, Female_15_years, Female_16_and_17_years))
 
+poverty_IA$per_minors <- (poverty_IA$Total_Minors / Total_Age_IA$Under_18_years * 100) 
+
+poverty_IA <- poverty_IA %>% 
+  mutate(rper_minors = round(per_minors/5) * 5)
+                                 
 #Error: Evaluation error: Specify exactly one of n and width. ?? 
 ##Error: Evaluation error: 'breaks' are not unique ??
   mutate(Minorsf = cut_interval(Total_Minors, legnth = 3 ))
 ```
 
 ```{r Poverty graph}
+
 poverty_IA %>%
   ggplot() +
-  geom_sf(aes(fill = factor(rlog_Minors))) + 
-  labs(title = "Minors Living in Poverty in Iowa") + 
+  geom_sf(aes(fill = factor(rper_minors))) + 
+  labs(title = "Peeercentage of Minors Living in Poverty in Iowa", fill = "Percent Minors") + 
   coord_sf(datum = NA) + 
-  theme_minimal() +
-  scale_fill_discrete(name = "Count", labels = c("<100", "100-500", "500-1,000", "1,000-5,000", "5,000-10,000", ">10,000")) 
-#change Legend to refect actual vaules, exp(log
-#Ugly colors...
+  theme_minimal() +  
+  scale_fill_brewer(palette = "Blues") 
 
-
+sum(poverty_IA$Total_Minors)/sum(Total_Age_IA$Under_18_years)
 ```
-This graph is a good start, but really we want proportions. Get ratios based on total respective age groups.
+This graph is a good start, but really we want proportions. Get ratios based on total respective age groups. Percent Minors is based on proportions of minors in poverty vs total minors.A minor is defined as a person under 18 years old. 14.5% of minors in Iowa are living in poverty.Southern Iowa has the highest concentration of minors living in poverty. Is high minor poverty linked to county income or family size? Also look at poverty level of seniors >65years.
 
 ```{r IA census Median Income graphs}
 
