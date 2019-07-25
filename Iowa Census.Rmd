@@ -52,8 +52,6 @@ LVacs5 <- load_variables(2017, "acs5", cache = TRUE)
 LVacs1 <- load_variables(2017, "acs1", cache = TRUE)
 LVcn2010 <- load_variables(2010, "sf1", cache = TRUE)
 
-View(LVcn2010)
-View(LVacs5)
 #FAMILY INCOME IN THE PAST 12 MONTHS (IN 2017 INFLATION-ADJUSTED DOLLARS) :B10010_001
 #OCCUPATION BY MEDIAN EARNINGS IN THE PAST 12 MONTHS (IN 2017 INFLATION-ADJUSTED DOLLARS) FOR THE CIVILIAN EMPLOYED POPULATION 16 YEARS AND OVER: B24011_030
 #DETAILED OCCUPATION BY MEDIAN EARNINGS IN THE PAST 12 MONTHS (IN 2017 INFLATION-ADJUSTED DOLLARS) FOR THE FULL-TIME, YEAR-ROUND CIVILIAN EMPLOYED POPULATION 16 YEARS AND OVER: B24012_067
@@ -113,7 +111,7 @@ acs_IA <- x01 %>%
   mutate(farmersf = cut_interval(farmers_per, n = 5, labels = c("<5", "5-10", "10-14", "14-18", ">18"))) %>%
    mutate(farmersi = cut_width(farming_to_total_income, width = .5))
 
-View(acs_IA)
+
 ```
 
 Notes from above: cut_interval is used to discretize a numerical variable into distinct groups for factor analysis, a secondary varaibale is created representing how that variabe fits into the new labeled bin (Age: if 35 fall in the 30-35 bin). For the median family income variables and new rounded variable was created that would make more incomes match for factor analysis.
@@ -190,7 +188,8 @@ Total_Age_IA <- Age_IA %>%
          years_70to74 = Male_70_to_74_years + Female_70_to_74_years,
          years_75to79 = Male_75_to_79_years + Female_75_to_79_years,
          years_80to84 = Male_80_to_84_years + Female_80_to_84_years,
-         Over_85_years = Male_85_years_and_over + Female_85_years_and_over) 
+         Over_85_years = Male_85_years_and_over + Female_85_years_and_over,
+         Over_65_years = years_65to69 + years_70to74 + years_75to79 + years_80to84 + Over_85_years) 
 Total_Age_IA[ , c(3:50)] <- NULL
 View(Total_Age_IA)
 ```
@@ -251,31 +250,114 @@ colnames(poverty_IA) <- gsub(" ", "_", colnames(poverty_IA))
 ##Do not use plyr!!! no round_any()
 poverty_IA <- poverty_IA %>%
   group_by(County) %>%
-  mutate(Total_Minors = sum(Male_Under_5_years, Male_5_years, Male_6_to_11_years, Male_12_to_14_years, Male_15_years, Male_16_and_17_years, Female_Under_5_years, Female_5_years, Female_6_to_11_years, Female_12_to_14_years, Female_15_years, Female_16_and_17_years))
+  mutate(Total_Minors = sum(Male_Under_5_years, Male_5_years, Male_6_to_11_years, Male_12_to_14_years, Male_15_years, Male_16_and_17_years, Female_Under_5_years, Female_5_years, Female_6_to_11_years, Female_12_to_14_years, Female_15_years, Female_16_and_17_years), 
+         Total_Seniors = sum(Male_65_to_74_years, Female_65_to_74_years, Male_75_years_and_over, Female_75_years_and_over))
 
 poverty_IA$per_minors <- (poverty_IA$Total_Minors / Total_Age_IA$Under_18_years * 100) 
+poverty_IA$per_seniors <- (poverty_IA$Total_Seniors/Total_Age_IA$Over_65_years * 100)
+
 
 poverty_IA <- poverty_IA %>% 
-  mutate(rper_minors = round(per_minors/5) * 5)
-                                 
+  mutate(iper_minors = cut(per_minors, breaks = c(0, 5, 10, 15, 20, 25, 30, 35),
+                            labels = c("<5", "5-10", "10-15", "15-20", "20-25", "25-30", "30-35")),
+         iper_seniors = cut(per_minors, breaks = c(0, 5, 10, 15, 20, 25, 30, 35),
+                            labels = c("<5", "5-10", "10-15", "15-20", "20-25", "25-30", "30-35"))) 
+           
+
+        
+
 #Error: Evaluation error: Specify exactly one of n and width. ?? 
 ##Error: Evaluation error: 'breaks' are not unique ??
   mutate(Minorsf = cut_interval(Total_Minors, legnth = 3 ))
 ```
 
-```{r Poverty graph}
+```{r Minors in poverty expl/ join multiplt tables}
+poverty_IA %>%
+  select(County, per_minors) %>% 
+  View()
+
+C1 <- cbind(County = acs_IA$County, acs_IA$total_population, acs_IA$med_family_income, poverty_IA$per_minors, acs_IA$geometry) %>%
+  as_tibble() %>%
+  rename(total_population = V2, med_family_income = V3, per_minors = V4, geometry = V5) %>%
+  mutate(as.numeric(med_family_income))
+
+View(C1)
+class(C1$med_family_income)
+#cbind converts columns to list, can't use as tibble, so no summarizing or plotting. Use join instead (?)
+
+plot(x = acs_IA$med_family_income, y = poverty_IA$per_minors) 
+#This plot is a good step, There is a negative correlation with Minors living in poverty and Median family income with the most variability around $50,000 income level 
+names(acs_IA)
+A1 <- acs_IA %>%
+  select(County, total_population, med_family_income, rounded_income, GEOID, geometry)
+
+names(poverty_IA)
+P1 <- poverty_IA %>%
+  select(Total_Minors, Total_Seniors, per_minors, GEOID)
+
+names(Total_Age_IA)
+T1 <- Total_Age_IA %>%
+  select(Under_18_years, Over_65_years, GEOID)
+
+plyr::join(x, y, by = NULL, type = "left", match = "all")
+I1 <- plyr::join(x = A1, y = P1, by = "GEOID", type = "full")
+#Error in join(x = A1, y = P1, by = GEOID, type = "full") : 
+##  could not find function "join".
+#I don't want to use plyr, last time it messed my code. =/
+```
+
+
+Van Buren County (with highest farmer to med income) has highest minors living in poverty, nearly 27%.
+Cedar county has lowest, 2.5%. Appanoose County has lowest median family income and Dallas county has the highest median income. neither max or min correspond of max or min of minors living in poverty.
+
+
+```{r Minors poverty graph}
 
 poverty_IA %>%
   ggplot() +
-  geom_sf(aes(fill = factor(rper_minors))) + 
-  labs(title = "Peeercentage of Minors Living in Poverty in Iowa", fill = "Percent Minors") + 
+  geom_sf(aes(fill = factor(iper_minors))) + 
+  labs(title = "Percentage of Minors Living in Poverty in Iowa", fill = "Minors (%)") + 
   coord_sf(datum = NA) + 
   theme_minimal() +  
-  scale_fill_brewer(palette = "Blues") 
+  scale_fill_brewer(palette = "OrRd") 
 
 sum(poverty_IA$Total_Minors)/sum(Total_Age_IA$Under_18_years)
 ```
 This graph is a good start, but really we want proportions. Get ratios based on total respective age groups. Percent Minors is based on proportions of minors in poverty vs total minors.A minor is defined as a person under 18 years old. 14.5% of minors in Iowa are living in poverty.Southern Iowa has the highest concentration of minors living in poverty. Is high minor poverty linked to county income or family size? Also look at poverty level of seniors >65years.
+
+```{r Seniors poverty graph}
+
+poverty_IA %>%
+  ggplot() +
+  geom_sf(aes(fill = factor(iper_seniors))) + 
+  labs(title = "Percentage of Seniors Living in Poverty in Iowa", fill = "Seniors (%)") + 
+  coord_sf(datum = NA) + 
+  theme_minimal() +
+  scale_fill_brewer(palette = "OrRd") 
+
+sum(poverty_IA$Total_Seniors)/sum(Total_Age_IA$Over_65_years)
+```
+
+```{r Correlation graphs}
+#Minors to seniors livngin in poverty, poor correlation
+ggplot(data = poverty_IA, aes( x = per_seniors, y = per_minors)) +
+  geom_point()
+#Minors to median income, strong neg correlation
+plot(acs_IA$med_family_income, poverty_IA$per_minors)
+#Seniors to median income, weak neg correlation
+plot(acs_IA$med_family_income, poverty_IA$per_seniors)
+
+
+poverty_IA %>%
+  summarize( Mean_Minors = mean(per_minors), Med_Minors = median(per_minors),
+            Med_Seniors = median(per_seniors), Mean_Seniors = mean(per_seniors)) %>%
+  View()
+Mean_Minors <- mean(poverty_IA$per_minors) #14.73%
+Med_Minors <- median(poverty_IA$per_minors) #13.95
+Med_Seniors <- median(poverty_IA$per_seniors) #7.39%
+Mean_Seniors <- mean(poverty_IA$per_seniors) #7.31%
+```
+
 
 ```{r IA census Median Income graphs}
 
